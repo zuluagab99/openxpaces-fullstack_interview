@@ -3,56 +3,60 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-# ---------------------------------------------------------------------------
-# Import
-# ---------------------------------------------------------------------------
-
 class RawDealInput(BaseModel):
-    model_config = {"extra": "allow"}  # accept any extra fields gracefully
-
-    tenant: Optional[str] = None
-    address: Optional[str] = None
-    size: Optional[str | int | float] = None
-    rent: Optional[str | int | float] = None
-    lease_type: Optional[str] = None
-    start_date: Optional[str] = None
-    term_months: Optional[str | int] = None
-    source: Optional[str] = None
+    model_config = {"extra": "allow"}
+    tenant:       Optional[str | int | float] = None
+    address:      Optional[str] = None
+    size:         Optional[str | int | float] = None
+    rent:         Optional[str | int | float] = None
+    lease_type:   Optional[str] = None
+    start_date:   Optional[str] = None
+    term_months:  Optional[str | int] = None
+    source:       Optional[str] = None
 
 
 class ImportError(BaseModel):
-    index: int
-    field: str
-    raw: str
+    index:  int
+    field:  str
+    raw:    str
     reason: str
 
 
 class ImportResult(BaseModel):
     imported: int
-    skipped: int
-    errors: list[ImportError]
+    skipped:  int
+    errors:   list[ImportError]
 
 
-# ---------------------------------------------------------------------------
-# Deal (response shape)
-# ---------------------------------------------------------------------------
+class JobResponse(BaseModel):
+    job_id:  str
+    status:  str
+    message: str
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    result: Optional[ImportResult] = None
+    error:  Optional[str] = None
+
 
 class DealResponse(BaseModel):
     model_config = {"from_attributes": True}
-
-    id: str
-    tenant_name: str
-    street: str
-    city: str
-    state: str
-    zip: Optional[str]
-    size_sqft: int
-    rent_psf: float
-    lease_type: str
-    lease_start_date: date
+    id:                str
+    tenant_name:       str
+    street:            str
+    city:              str
+    state:             str
+    zip:               Optional[str]
+    size_sqft:         int
+    rent_psf:          float
+    lease_type:        str
+    lease_start_date:  date
     lease_term_months: Optional[int]
-    data_source: Optional[str]
-    created_at: str
+    data_source:       Optional[str]
+    anomaly_flags:     list[str]
+    created_at:        str
 
     @classmethod
     def from_orm_deal(cls, deal) -> "DealResponse":
@@ -69,25 +73,23 @@ class DealResponse(BaseModel):
             lease_start_date=deal.lease_start_date,
             lease_term_months=deal.lease_term_months,
             data_source=deal.data_source,
+            anomaly_flags=deal.anomaly_flags or [],
             created_at=deal.created_at.isoformat(),
         )
 
 
 class DealsListResponse(BaseModel):
-    total: int
-    page: int
+    total:     int
+    page:      int
     page_size: int
-    results: list[DealResponse]
+    results:   list[DealResponse]
 
-
-# ---------------------------------------------------------------------------
-# Market summary
-# ---------------------------------------------------------------------------
 
 class MarketSummaryResponse(BaseModel):
-    city: str
-    state: str
-    deal_count: int
-    avg_rent_psf: Optional[float]
-    median_rent_psf: Optional[float]
+    city:                 str
+    state:                str
+    deal_count:           int
+    avg_rent_psf:         Optional[float]
+    median_rent_psf:      Optional[float]
     lease_type_breakdown: dict[str, int]
+    cached:               bool = False

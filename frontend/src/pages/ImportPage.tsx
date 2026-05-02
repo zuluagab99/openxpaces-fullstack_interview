@@ -1,13 +1,44 @@
 import { useState, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
-import { Upload, FileJson, X, AlertCircle, CheckCircle2, SkipForward } from "lucide-react";
-import { importDeals } from "@/api/deals";
+import { Upload, FileJson, X, AlertCircle, CheckCircle2, SkipForward, Loader2 } from "lucide-react";
+import { importDeals, getImportStatus } from "@/api/deals";
 import { ImportResult } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+
+function pollStatus(jobId: string, toastId: string, onDone: (r: ImportResult) => void) {
+  const iv = setInterval(async () => {
+    try {
+      const status = await getImportStatus(jobId);
+      if (status.status === "done" && status.result) {
+        clearInterval(iv);
+        const r = status.result;
+        toast.success(
+          `Done — ${r.imported} imported, ${r.skipped} skipped, ${r.errors.length} error${r.errors.length !== 1 ? "s" : ""}`,
+          { id: toastId, duration: 6000 }
+        );
+        onDone(r);
+      } else if (status.status === "error") {
+        clearInterval(iv);
+        toast.error(status.error || "Import failed", { id: toastId });
+      }
+    } catch {
+      clearInterval(iv);
+      toast.error("Lost connection to server", { id: toastId });
+    }
+  }, 1000);
+}
+
+const ANOMALY_LABELS: Record<string, string> = {
+  high_rent:   "High rent",
+  low_rent:    "Low rent",
+  large_space: "Large space",
+  long_term:   "Long term",
+  short_term:  "Short term",
+};
 
 export default function ImportPage() {
   const [raw, setRaw]           = useState("");
@@ -18,14 +49,10 @@ export default function ImportPage() {
   const fileRef                 = useRef<HTMLInputElement>(null);
 
   function loadFile(file: File) {
-    if (!file.name.endsWith(".json")) {
-      toast.error("Please upload a .json file");
-      return;
-    }
+    if (!file.name.endsWith(".json")) { toast.error("Please upload a .json file"); return; }
     const reader = new FileReader();
     reader.onload = e => {
-      const text = e.target?.result as string;
-      setRaw(text);
+      setRaw(e.target?.result as string);
       setError("");
       setResult(null);
       toast.success(`Loaded ${file.name}`);
@@ -41,42 +68,32 @@ export default function ImportPage() {
   }, []);
 
   async function handleImport() {
-    setError("");
-    setResult(null);
+    setError(""); setResult(null);
     let parsed: unknown[];
     try {
       parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) throw new Error("Must be a JSON array");
-    } catch {
-      setError("Invalid JSON — paste or upload a valid JSON array of deal objects.");
-      return;
-    }
+    } catch { setError("Invalid JSON — paste or upload a valid JSON array."); return; }
+
     setLoading(true);
-    const toastId = toast.loading(`Processing ${parsed.length} records…`);
+    const toastId = toast.loading(`Queuing ${parsed.length} records…`);
     try {
-      const res = await importDeals(parsed);
-      setResult(res);
-      toast.success(
-        `Done — ${res.imported} imported, ${res.skipped} skipped, ${res.errors.length} errors`,
-        { id: toastId, duration: 5000 }
-      );
+      const { job_id } = await importDeals(parsed);
+      toast.loading("Processing in background…", { id: toastId });
+      pollStatus(job_id, toastId, (r) => { setResult(r); setLoading(false); });
     } catch (e) {
-      const msg = String(e);
-      setError(msg);
-      toast.error("Import failed", { id: toastId });
-    } finally {
+      setError(String(e));
+      toast.error("Failed to start import", { id: toastId });
       setLoading(false);
     }
   }
-
-  const lineCount = raw ? raw.split("\n").length : 0;
 
   return (
     <div className="p-6 max-w-4xl mx-auto animate-fade-in">
       <div className="mb-6">
         <h1 className="text-xl font-semibold">Import deals</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Upload a JSON file or paste raw deal data. Records are normalized, deduplicated, and validated automatically.
+          Upload a .json file or paste raw deal data. Imports run in the background — you'll be notified when done.
         </p>
       </div>
 
@@ -89,19 +106,18 @@ export default function ImportPage() {
           onClick={() => fileRef.current?.click()}
           className={cn(
             "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all",
-            dragging
-              ? "border-primary bg-primary/5 scale-[1.01]"
-              : "border-border hover:border-primary/50 hover:bg-accent/50"
+            dragging ? "border-primary bg-primary/5 scale-[1.01]" : "border-border hover:border-primary/50 hover:bg-accent/50"
           )}
         >
-          <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
+          <input ref={fileRef} type="file" accept=".json" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
           <div className="flex flex-col items-center gap-2 pointer-events-none">
             <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center transition-colors", dragging ? "bg-primary/10" : "bg-muted")}>
               <FileJson size={22} className={dragging ? "text-primary" : "text-muted-foreground"} />
             </div>
             <div>
               <p className="text-sm font-medium">{dragging ? "Drop to load" : "Drop your JSON file here"}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">or click to browse</p>
+              <p className="text-xs text-muted-foreground mt-0.5">or click to browse — .json only</p>
             </div>
           </div>
         </div>
@@ -112,14 +128,10 @@ export default function ImportPage() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>Paste JSON</CardTitle>
-                <CardDescription className="mt-0.5">Paste the array of raw deal objects directly</CardDescription>
+                <CardDescription className="mt-0.5">Paste a raw JSON array of deal objects</CardDescription>
               </div>
               <div className="flex items-center gap-2">
-                {raw && (
-                  <Badge variant="default" className="font-mono-num">
-                    {lineCount} lines
-                  </Badge>
-                )}
+                {raw && <Badge variant="default" className="font-mono-num">{raw.split("\n").length} lines</Badge>}
                 {raw && (
                   <Button variant="ghost" size="icon" onClick={() => { setRaw(""); setResult(null); setError(""); }}>
                     <X size={14} />
@@ -138,14 +150,13 @@ export default function ImportPage() {
             />
             {error && (
               <div className="flex items-center gap-2 mt-2 text-destructive text-sm">
-                <AlertCircle size={14} />
-                {error}
+                <AlertCircle size={14} />{error}
               </div>
             )}
             <div className="flex items-center gap-2 mt-3">
               <Button onClick={handleImport} disabled={loading || !raw.trim()} className="gap-2">
-                <Upload size={14} />
-                {loading ? "Importing…" : "Import deals"}
+                {loading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                {loading ? "Processing…" : "Import deals"}
               </Button>
             </div>
           </CardContent>
@@ -166,7 +177,6 @@ export default function ImportPage() {
                   </div>
                 </CardContent>
               </Card>
-
               <Card className="border-amber-500/20 bg-amber-500/5">
                 <CardContent className="pt-5 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
@@ -178,7 +188,6 @@ export default function ImportPage() {
                   </div>
                 </CardContent>
               </Card>
-
               <Card className="border-red-500/20 bg-red-500/5">
                 <CardContent className="pt-5 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
@@ -194,9 +203,7 @@ export default function ImportPage() {
 
             {result.errors.length > 0 && (
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm">Row errors</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle className="text-sm">Row errors</CardTitle></CardHeader>
                 <CardContent className="pt-0">
                   <table className="w-full text-sm">
                     <thead>
