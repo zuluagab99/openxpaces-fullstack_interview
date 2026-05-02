@@ -140,7 +140,7 @@ def normalize_address(raw: str) -> ParsedAddress:
 
     raw = raw.strip()
 
-    # Try standard format: "123 Main St, Austin, TX 78701"
+    # Pattern 1: "123 Main St, Austin, TX 78701" (two commas, standard)
     standard = re.match(
         r"^(.+),\s*([^,]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)?$",
         raw,
@@ -154,8 +154,21 @@ def normalize_address(raw: str) -> ParsedAddress:
             zip=standard.group(4) or None,
         )
 
-    # Heuristic for no-comma formats: "455 Brickell Ave Miami FL"
-    # Last token = state (2 letters), second-to-last = city
+    # Pattern 2: "742 King Rd, San Jose CA 95112" (one comma, city+state together)
+    one_comma = re.match(
+        r"^(.+),\s*(.+?)\s+([A-Z]{2})\s*(\d{5}(?:-\d{4})?)?$",
+        raw,
+        re.IGNORECASE,
+    )
+    if one_comma:
+        return ParsedAddress(
+            street=one_comma.group(1).strip(),
+            city=one_comma.group(2).strip(),
+            state=one_comma.group(3).upper(),
+            zip=one_comma.group(4) or None,
+        )
+
+    # Pattern 3: "455 Brickell Ave Miami FL" (no commas, heuristic)
     tokens = raw.split()
     if len(tokens) >= 3 and re.match(r"^[A-Z]{2}$", tokens[-1], re.IGNORECASE):
         state = tokens[-1].upper()

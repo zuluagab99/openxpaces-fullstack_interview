@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Environment
+.env
+
+# Database (local SQLite fallback if used)
+*.db
+
+# Node
+node_modules/
+dist/
+.DS_Store
+
+# Vite
+frontend/.vite/
+
+# Logs
+*.log
