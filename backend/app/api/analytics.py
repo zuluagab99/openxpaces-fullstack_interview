@@ -23,7 +23,7 @@ def market_summary(
     cache_key = f"market:{city.lower()}:{state.lower()}:{sqft_min}:{sqft_max}"
     cached = cache_get(cache_key)
     if cached:
-        return MarketSummaryResponse(**cached, cached=True)
+        return MarketSummaryResponse(**{**cached, "cached": True})
 
     q = (
         db.query(Deal)
